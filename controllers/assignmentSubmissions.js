@@ -56,7 +56,7 @@ const submitAssignment = async (req, res, next) => {
 
        // ----------------------------
     // Notify the assignment creator
-    const assignment = await Assignment.findById(assignmentId);
+    const assignment = await Assignment.findById(submission?.assignmentId);
     const studentUser = await User.findById(studentId);
 
     if (assignment && assignment.createdBy) {
