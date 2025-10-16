@@ -331,6 +331,70 @@ exports.geFullCourseById = async (req, res, next) => {
   }
 };
 
+// exports.getCoursesByAssignedTutor = catchAsync(async (req, res) => {
+//   const { tutorId } = req.params;
+
+//   // 1. Check if tutor exists and role is tutor
+//   const tutorUser = await User.findById(tutorId).populate("roleId");
+//   if (!tutorUser) throw new NotFoundError("Tutor not found");
+
+//   const role = tutorUser?.roleId?.role_name?.toLowerCase();
+//   if (role !== "tutor") {
+//     throw new BadRequestError("Provided user is not a tutor");
+//   }
+
+//   // Fetch tutor document to get assigned course IDs
+//   const tutor = await Tutor.findOne({ userId: tutorId }).lean();
+//   if (!tutor) throw new NotFoundError("Tutor not found");
+
+//   const courseIds = tutor.courseIds || [];
+//   if (courseIds.length === 0) {
+//     return res.status(200).json({
+//       status: "success",
+//       total: 0,
+//       page: 1,
+//       limit: 0,
+//       totalPages: 0,
+//       data: [],
+//     });
+//   }
+
+//   //  Pagination
+//   const page = parseInt(req.query.page) || 1;
+//   const limit = parseInt(req.query.limit) || 10;
+//   const search = req.query.search || ''
+//   const skip = (page - 1) * limit;
+
+//   const filter = { 
+//     _id: { $in: courseIds },
+//     status: true, 
+//   };
+
+//   if (search) {
+//     filter.title = { $regex: search, $options: "i" }; 
+//   }
+
+//   //  Count total
+//   const total = await Course.countDocuments(filter);
+
+//   // Fetch courses with pagination + sorting
+//   const courses = await Course.find(filter)
+//     .populate("createdBy", "name email _id")
+//     .sort({ title: 1 }) 
+//     .skip(skip)
+//     .limit(limit);
+
+//   // 6. Response
+//   res.status(200).json({
+//     status: "success",
+//     total,
+//     page,
+//     limit,
+//     totalPages: Math.ceil(total / limit),
+//     data: courses,
+//   });
+// });
+
 exports.getCoursesByAssignedTutor = catchAsync(async (req, res) => {
   const { tutorId } = req.params;
 
@@ -359,10 +423,10 @@ exports.getCoursesByAssignedTutor = catchAsync(async (req, res) => {
     });
   }
 
-  //  Pagination
+  // Pagination
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
-  const search = req.query.search || ''
+  const search = req.query.search || '';
   const skip = (page - 1) * limit;
 
   const filter = { 
@@ -374,24 +438,53 @@ exports.getCoursesByAssignedTutor = catchAsync(async (req, res) => {
     filter.title = { $regex: search, $options: "i" }; 
   }
 
-  //  Count total
+  // Count total
   const total = await Course.countDocuments(filter);
 
-  // Fetch courses with pagination + sorting
-  const courses = await Course.find(filter)
+  // Fetch courses
+  let courses = await Course.find(filter)
     .populate("createdBy", "name email _id")
-    .sort({ title: 1 }) 
+    .sort({ title: 1 })
     .skip(skip)
-    .limit(limit);
+    .limit(limit)
+    .lean();
 
-  // 6. Response
+    const formatDuration = (totalMinutes) => {
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${hours} hrs ${minutes} mins`;
+    };
+    
+    const coursesWithDuration = await Promise.all(
+      courses.map(async (course) => {
+        // Get all modules of this course
+        const modules = await Module.find({ courseId: course._id }).select("_id").lean();
+        const moduleIds = modules.map(m => m._id);
+    
+        // Get all chapters of these modules
+        const chapters = await Chapter.find({ moduleId: { $in: moduleIds } }).select("_id").lean();
+        const chapterIds = chapters.map(c => c._id);
+    
+        // Get all lessons of these chapters
+        const lessons = await Lesson.find({ chapterId: { $in: chapterIds } }).select("duration").lean();
+    
+        // Sum duration
+        const totalMinutes = lessons.reduce((sum, lesson) => sum + (lesson.duration || 0), 0);
+    
+        return { 
+          ...course, 
+          totalDuration: formatDuration(totalMinutes) 
+        };
+      })
+    );
+    
   res.status(200).json({
     status: "success",
     total,
     page,
     limit,
     totalPages: Math.ceil(total / limit),
-    data: courses,
+    data: coursesWithDuration,
   });
 });
 
