@@ -96,7 +96,7 @@ const createStudent = async (req, res, next) => {
     // Send email with credentials via Brevo
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; color: #333;">
-        <h2>Welcome to ${course.title}</h2>
+        <h2>Welcome to Mspace</h2>
         <p>Hello ${user.name || "Student"},</p>
         <p>Your account has been created successfully. Here are your login credentials:</p>
         <p><strong>Email:</strong> ${email}</p>
@@ -106,7 +106,7 @@ const createStudent = async (req, res, next) => {
         <p>Regards,<br/>Your App Team</p>
       </div>
     `;
-    await sendBrevoEmail(email, `Your ${course.title} Login Credentials`, htmlContent);
+    await sendBrevoEmail(email, `Your Mspace Student App Login Credentials`, htmlContent);
     // -------------------------------
 
     await session.commitTransaction();

@@ -9,6 +9,7 @@ const Course = require("../models/Course");
 const calculateBase64FileSize = require("../helper/calculateBase64FileSize");
 const Student = require("../models/Student");
 const { deleteFileFromS3 } = require("../utils/deleteFileFromS3");
+const { sendNotificationToStudent } = require("../utils/sendNotificationToUser");
 
 // === Util: Upload all files and format
 // const processAssignmentFiles = async (files = []) => {
@@ -127,6 +128,19 @@ const createAssignment = async (req, res, next) => {
     }));
 
     await AssignmentSubmission.insertMany(submissions, { session });
+
+     // --------------------------
+    // Send notifications in parallel using Promise.all
+    await Promise.all(
+      studentIds.map(studentId =>
+        sendNotificationToStudent(
+          studentId,
+          "New Assignment",
+          `You have a new assignment: ${title}`,
+        )
+      )
+    );
+    // --------------------------
 
     // 5. Commit
     await session.commitTransaction();

@@ -4,6 +4,7 @@ const User = require("../models/User");
 const { NotFoundError, BadRequestError } = require("../utils/customErrors");
 const { uploadBase64ToS3 } = require("../utils/s3Uploader");
 const calculateBase64FileSize = require("../helper/calculateBase64FileSize");
+const { sendNotificationToTutor } = require("../utils/sendNotificationToUser");
 
 const submitAssignment = async (req, res, next) => {
     try {
@@ -52,6 +53,24 @@ const submitAssignment = async (req, res, next) => {
       submission.submittedAt = Date.now()
   
       await submission.save();
+
+       // ----------------------------
+    // Notify the assignment creator
+    const assignment = await Assignment.findById(assignmentId);
+    const studentUser = await User.findById(studentId);
+
+    if (assignment && assignment.createdBy) {
+      const messageTitle = "Assignment Submitted";
+      const messageBody = `Student "${studentUser?.name || 'Unknown'}" has submitted the assignment: "${assignment.title}".`;
+
+      // Send notification
+      await sendNotificationToTutor(
+        assignment.createdBy.toString(),
+        messageTitle,
+        messageBody
+      );
+    }
+    // ----------------------------
   
       res.status(200).json({
         message: "Assignment submitted successfully.",
