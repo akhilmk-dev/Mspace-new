@@ -92,6 +92,23 @@ const createStudent = async (req, res, next) => {
       { session }
     );
 
+     // -------------------------------
+    // Send email with credentials via Brevo
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; color: #333;">
+        <h2>Welcome to ${course.title}</h2>
+        <p>Hello ${user.name || "Student"},</p>
+        <p>Your account has been created successfully. Here are your login credentials:</p>
+        <p><strong>Email:</strong> ${email}</p>
+        <p><strong>Password:</strong> ${password}</p>
+        <br/>
+        <p>Please change your password after your first login.</p>
+        <p>Regards,<br/>Your App Team</p>
+      </div>
+    `;
+    await sendBrevoEmail(email, `Your ${course.title} Login Credentials`, htmlContent);
+    // -------------------------------
+
     await session.commitTransaction();
     session.endSession();
 

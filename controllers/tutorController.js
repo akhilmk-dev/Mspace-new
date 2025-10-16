@@ -18,6 +18,11 @@ const Assignment = require("../models/Assignment");
 const AssignmentSubmission = require("../models/AssignmentSubmission");
 const Student = require("../models/Student");
 const Attendance = require("../models/Attendance");
+const sendBrevoEmail = require("../utils/sendBrevoEmail");
+
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
 
 // Create tutor
 async function createTutor(req, res, next) {
@@ -118,6 +123,22 @@ async function createTutor(req, res, next) {
         title: c.title,
       }));
     }
+
+     // -------------------------------
+    // Send email to tutor using your sendBrevoEmail utility
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; color: #333;">
+        <h2>Welcome, ${name}!</h2>
+        <p>Your tutor account has been created successfully.</p>
+        <p><strong>Email:</strong> ${email}</p>
+        <p><strong>Password:</strong> ${password}</p>
+        <p>Please login and change your password after first login.</p>
+        <br/>
+        <p>Regards,<br/>Your App Team</p>
+      </div>
+    `;
+    await sendBrevoEmail(email, "Your Tutor Account Credentials", htmlContent);
+    // -------------------------------
 
     await session.commitTransaction();
     session.endSession();
@@ -611,56 +632,97 @@ const checkEmail = async (req, res, next) => {
       throw new ForbiddenError("Invalid tutor");
     }
 
+    // Generate and store OTP
+    const otp = generateOTP(); // 5-digit random OTP
+    user.otpCode = otp;
+    user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes validity
+    await user.save();
+
+    // Send OTP via email
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; color: #333;">
+        <h2>Password Reset Request</h2>
+        <p>Hello ${user.name || "Tutor"},</p>
+        <p>Your OTP for password reset is:</p>
+        <h3 style="color:#2E86C1;">${otp}</h3>
+        <p>This OTP is valid for 10 minutes.</p>
+        <p>If you didn’t request a password reset, please ignore this email.</p>
+        <br/>
+        <p>Regards,<br/>Your App Team</p>
+      </div>
+    `;
+
+    await sendBrevoEmail(email, "Password Reset OTP", htmlContent);
+
     res.json({
-      status:"success",
-      message: "OTP send successfully",
+      status: "success",
+      message: "OTP sent successfully to your email",
     });
   } catch (err) {
     next(err);
   }
 };
 
-const verifyOtp = async (req, res) => {
-  const {email,otp}= req.body;
-  const user = await User.findOne({ email }).populate("roleId");
-  if (!user) throw new NotFoundError("Tutor not found");
-
-  // Check if user is a tutor
-  if (!user.roleId || !/tutor/i.test(user.roleId.role_name)) {
-    throw new ForbiddenError("Invalid Tutor");
-  }
-  if (otp !== "55555") throw new BadRequestError("Invalid OTP");
-
-  user.otpVerified = true;
-  await user.save();
-
-  res.json({ status: "success", message: "OTP verified" });
-};
-
-const resetPassword = async (req, res, next) => {
+// Step 2: Verify OTP
+const verifyOtp = async (req, res, next) => {
   try {
-    const { email, newPassword } = req.body;
-    if (!email || !newPassword) throw new BadRequestError("Email and new password are required");
+    const { email, otp } = req.body;
+    if (!email || !otp) throw new BadRequestError("Email and OTP are required");
 
     const user = await User.findOne({ email }).populate("roleId");
     if (!user) throw new NotFoundError("Tutor not found");
-  
-    // Check if user is a Tutor
+
+    // Check if user is a tutor
+    if (!user.roleId || !/tutor/i.test(user.roleId.role_name)) {
+      throw new ForbiddenError("Invalid tutor");
+    }
+
+    // Validate OTP
+    if (!user.otpCode || user.otpCode !== otp) {
+      throw new BadRequestError("Invalid OTP");
+    }
+
+    // Check expiry
+    if (new Date() > new Date(user.otpExpiresAt)) {
+      throw new BadRequestError("OTP expired. Please request a new one.");
+    }
+
+    user.otpVerified = true;
+    await user.save();
+
+    res.json({ status: "success", message: "OTP verified successfully" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Step 3: Reset password
+const resetPassword = async (req, res, next) => {
+  try {
+    const { email, newPassword } = req.body;
+    if (!email || !newPassword)
+      throw new BadRequestError("Email and new password are required");
+
+    const user = await User.findOne({ email }).populate("roleId");
+    if (!user) throw new NotFoundError("Tutor not found");
+
+    // Check if user is a tutor
     if (!user.roleId || !/tutor/i.test(user.roleId.role_name)) {
       throw new ForbiddenError("Invalid tutor");
     }
 
     if (!user.otpVerified) throw new ForbiddenError("OTP not verified");
 
-    // Check if new password is same as old password
+    // Prevent same password
     const isSamePassword = await bcrypt.compare(newPassword, user.passwordHash);
-    if (isSamePassword) {
+    if (isSamePassword)
       throw new BadRequestError("New password cannot be the same as old password");
-    }
 
     // Hash and save new password
     user.passwordHash = await bcrypt.hash(newPassword, 10);
-    user.otpVerified = false; 
+    user.otpVerified = false;
+    user.otpCode = undefined;
+    user.otpExpiresAt = undefined;
     await user.save();
 
     res.json({ status: "success", message: "Password reset successfully" });
@@ -668,6 +730,7 @@ const resetPassword = async (req, res, next) => {
     next(err);
   }
 };
+
 
 const tutorHome = async (req, res, next) => {
   try {
