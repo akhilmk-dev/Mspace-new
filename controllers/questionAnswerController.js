@@ -147,7 +147,6 @@ export const getStudentQuestionsByLesson = catchAsync(async (req, res) => {
   });
 });
 
-
 // Get all questions for a lesson (for tutor)
 export const getLessonQuestions = catchAsync(async (req, res) => {
   const { lessonId } = req.params;
@@ -220,7 +219,6 @@ export const getLessonQuestions = catchAsync(async (req, res) => {
     data: formatted,
   });
 });
-
 
 export const getAllQuestions = catchAsync(async (req, res) => {
   const { page = 1, limit = 10, moduleId, search = "" } = req.query;

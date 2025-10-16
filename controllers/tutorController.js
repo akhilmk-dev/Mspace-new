@@ -19,6 +19,9 @@ const AssignmentSubmission = require("../models/AssignmentSubmission");
 const Student = require("../models/Student");
 const Attendance = require("../models/Attendance");
 const sendBrevoEmail = require("../utils/sendBrevoEmail");
+const Module = require("../models/Module");
+const Chapter = require("../models/Chapter");
+const Lesson = require("../models/Lesson");
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -732,6 +735,116 @@ const resetPassword = async (req, res, next) => {
 };
 
 
+// const tutorHome = async (req, res, next) => {
+//   try {
+//     const tutorId = req.user?.id;
+
+//     if (!mongoose.Types.ObjectId.isValid(tutorId)) {
+//       throw new BadRequestError("Invalid tutor ID");
+//     }
+
+//     // === Fetch tutor record ===
+//     const tutor = await Tutor.findOne({ userId: tutorId })
+//       .populate("userId", "name email phone")
+//       .lean();
+
+//     if (!tutor) throw new NotFoundError("Tutor not found");
+
+//     const courseIds = tutor.courseIds || [];
+
+//     // === Fetch first five courses ===
+//     const courses = await Course.find({ _id: { $in: courseIds } })
+//       .select("_id title description thumbnail")
+//       .limit(5)
+//       .lean();
+
+//     // === Assignments reviewed today ===
+//     const startOfDay = new Date();
+//     startOfDay.setHours(0, 0, 0, 0);
+//     const endOfDay = new Date();
+//     endOfDay.setHours(23, 59, 59, 999);
+
+//     const tutorAssignments = await Assignment.find({ createdBy: tutorId }).select("_id");
+//     const assignmentIds = tutorAssignments.map((a) => a._id);
+
+//     const reviewedTodayCount = await AssignmentSubmission.countDocuments({
+//       assignmentId: { $in: assignmentIds },
+//       reviewedAt: { $gte: startOfDay, $lte: endOfDay },
+//     });
+
+//     // === Average attendance percentage of students in tutor’s courses ===
+//     const studentsInCourses = await Student.find({
+//       courseId: { $in: courseIds },
+//     }).select("userId courseId");
+
+//     const studentIds = studentsInCourses.map((s) => s.userId);
+
+//     let avgAttendancePercentage = 0;
+
+//     if (studentIds.length > 0) {
+//       const attendanceStats = await Attendance.aggregate([
+//         {
+//           $match: {
+//             studentId: { $in: studentIds.map((id) => new mongoose.Types.ObjectId(id)) },
+//             courseId: { $in: courseIds.map((id) => new mongoose.Types.ObjectId(id)) },
+//           },
+//         },
+//         {
+//           $group: {
+//             _id: "$studentId",
+//             totalDays: { $sum: 1 },
+//             presentDays: {
+//               $sum: { $cond: [{ $eq: ["$present", true] }, 1, 0] },
+//             },
+//           },
+//         },
+//         {
+//           $project: {
+//             percentage: {
+//               $cond: [
+//                 { $eq: ["$totalDays", 0] },
+//                 0,
+//                 { $multiply: [{ $divide: ["$presentDays", "$totalDays"] }, 100] },
+//               ],
+//             },
+//           },
+//         },
+//         {
+//           $group: {
+//             _id: null,
+//             avgPercentage: { $avg: "$percentage" },
+//           },
+//         },
+//       ]);
+//       avgAttendancePercentage = attendanceStats[0]?.avgPercentage?.toFixed(2) || 0;
+//     }
+
+//     // === Active students count ===
+//     const activeStudentsCount = await User.countDocuments({
+//       _id: { $in: studentIds },
+//       status: true,
+//     });
+
+//     // === Response ===
+//     res.status(200).json({
+//       status: "success",
+//       data: {
+//         profile_image: tutor?.profile_image,
+//         name: tutor?.userId?.name,
+//         email: tutor?.userId?.email,
+//         phone: tutor?.userId?.phone,
+//         tutorId,
+//         reviewedTodayCount,
+//         avgAttendancePercentage: Number(avgAttendancePercentage),
+//         activeStudentsCount,
+//         courses, 
+//       },
+//     });
+//   } catch (err) {
+//     next(err);
+//   }
+// };
+
 const tutorHome = async (req, res, next) => {
   try {
     const tutorId = req.user?.id;
@@ -742,7 +855,7 @@ const tutorHome = async (req, res, next) => {
 
     // === Fetch tutor record ===
     const tutor = await Tutor.findOne({ userId: tutorId })
-      .populate("userId", "name email phone")
+      .populate("userId", "name email phone profile_image")
       .lean();
 
     if (!tutor) throw new NotFoundError("Tutor not found");
@@ -750,10 +863,30 @@ const tutorHome = async (req, res, next) => {
     const courseIds = tutor.courseIds || [];
 
     // === Fetch first five courses ===
-    const courses = await Course.find({ _id: { $in: courseIds } })
+    let courses = await Course.find({ _id: { $in: courseIds } })
       .select("_id title description thumbnail")
       .limit(5)
       .lean();
+
+    // === Calculate total duration for each course ===
+    const coursesWithDuration = await Promise.all(
+      courses.map(async (course) => {
+        const modules = await Module.find({ courseId: course._id }).select("_id").lean();
+        const moduleIds = modules.map(m => m._id);
+
+        const chapters = await Chapter.find({ moduleId: { $in: moduleIds } }).select("_id").lean();
+        const chapterIds = chapters.map(c => c._id);
+
+        const lessons = await Lesson.find({ chapterId: { $in: chapterIds } }).select("duration").lean();
+
+        const totalMinutes = lessons.reduce((sum, lesson) => sum + (lesson.duration || 0), 0);
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        const totalDuration = `${hours} hrs ${minutes} mins`;
+
+        return { ...course, totalDuration };
+      })
+    );
 
     // === Assignments reviewed today ===
     const startOfDay = new Date();
@@ -762,47 +895,37 @@ const tutorHome = async (req, res, next) => {
     endOfDay.setHours(23, 59, 59, 999);
 
     const tutorAssignments = await Assignment.find({ createdBy: tutorId }).select("_id");
-    const assignmentIds = tutorAssignments.map((a) => a._id);
+    const assignmentIds = tutorAssignments.map(a => a._id);
 
     const reviewedTodayCount = await AssignmentSubmission.countDocuments({
       assignmentId: { $in: assignmentIds },
       reviewedAt: { $gte: startOfDay, $lte: endOfDay },
     });
 
-    // === Average attendance percentage of students in tutor’s courses ===
-    const studentsInCourses = await Student.find({
-      courseId: { $in: courseIds },
-    }).select("userId courseId");
-
-    const studentIds = studentsInCourses.map((s) => s.userId);
+    // === Average attendance percentage ===
+    const studentsInCourses = await Student.find({ courseId: { $in: courseIds } }).select("userId courseId");
+    const studentIds = studentsInCourses.map(s => s.userId);
 
     let avgAttendancePercentage = 0;
-
     if (studentIds.length > 0) {
       const attendanceStats = await Attendance.aggregate([
         {
           $match: {
-            studentId: { $in: studentIds.map((id) => new mongoose.Types.ObjectId(id)) },
-            courseId: { $in: courseIds.map((id) => new mongoose.Types.ObjectId(id)) },
+            studentId: { $in: studentIds.map(id => new mongoose.Types.ObjectId(id)) },
+            courseId: { $in: courseIds.map(id => new mongoose.Types.ObjectId(id)) },
           },
         },
         {
           $group: {
             _id: "$studentId",
             totalDays: { $sum: 1 },
-            presentDays: {
-              $sum: { $cond: [{ $eq: ["$present", true] }, 1, 0] },
-            },
+            presentDays: { $sum: { $cond: [{ $eq: ["$present", true] }, 1, 0] } },
           },
         },
         {
           $project: {
             percentage: {
-              $cond: [
-                { $eq: ["$totalDays", 0] },
-                0,
-                { $multiply: [{ $divide: ["$presentDays", "$totalDays"] }, 100] },
-              ],
+              $cond: [{ $eq: ["$totalDays", 0] }, 0, { $multiply: [{ $divide: ["$presentDays", "$totalDays"] }, 100] }],
             },
           },
         },
@@ -817,10 +940,19 @@ const tutorHome = async (req, res, next) => {
     }
 
     // === Active students count ===
-    const activeStudentsCount = await User.countDocuments({
-      _id: { $in: studentIds },
-      status: true,
-    });
+    const activeStudentsCount = await User.countDocuments({ _id: { $in: studentIds }, status: true });
+
+    // === Total minutes of all tutor courses ===
+    const allModules = await Module.find({ courseId: { $in: courseIds } }).select("_id").lean();
+    const allModuleIds = allModules.map(m => m._id);
+    const allChapters = await Chapter.find({ moduleId: { $in: allModuleIds } }).select("_id").lean();
+    const allChapterIds = allChapters.map(c => c._id);
+    const allLessons = await Lesson.find({ chapterId: { $in: allChapterIds } }).select("duration").lean();
+
+    const totalMinutes = allLessons.reduce((sum, lesson) => sum + (lesson.duration || 0), 0);
+    const totalHours = Math.floor(totalMinutes / 60);
+    const remainingMinutes = totalMinutes % 60;
+    const totalCourseDuration = `${totalHours} hrs ${remainingMinutes} mins`;
 
     // === Response ===
     res.status(200).json({
@@ -832,9 +964,9 @@ const tutorHome = async (req, res, next) => {
         phone: tutor?.userId?.phone,
         tutorId,
         reviewedTodayCount,
-        avgAttendancePercentage: Number(avgAttendancePercentage),
+        avgAttendancePercentage: Number(avgAttendancePercentage).toFixed(0),
         activeStudentsCount,
-        courses, 
+        courses: coursesWithDuration,
       },
     });
   } catch (err) {

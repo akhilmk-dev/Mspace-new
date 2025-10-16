@@ -71,7 +71,6 @@ const submitAssignment = async (req, res, next) => {
       );
     }
     // ----------------------------
-  
       res.status(200).json({
         message: "Assignment submitted successfully.",
         submission,
