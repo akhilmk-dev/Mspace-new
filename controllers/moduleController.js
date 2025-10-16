@@ -72,16 +72,16 @@ exports.createModule = catchAsync(async (req, res) => {
 
 // Get All Modules
 exports.getAllModules = catchAsync(async (req, res) => {
-  // 1️⃣ Pagination
+  //  Pagination
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  // 2️⃣ Search
+  // Search
   const search = req.query.search || '';
   const searchRegex = new RegExp(search, 'i');
 
-  // 3️⃣ Sort parsing from `sortBy=field:direction`
+  //  Sort parsing from `sortBy=field:direction`
   let sortField = 'createdAt';
   let sortOrder = -1; // default descending
   if (req.query.sortBy) {
@@ -90,16 +90,16 @@ exports.getAllModules = catchAsync(async (req, res) => {
     sortOrder = order === 'asc' ? 1 : -1;
   }
 
-  // 4️⃣ Optional course filter
+  //  Optional course filter
   const courseId = req.query.courseId;
 
-  // 5️⃣ Build query
+  //  Build query
   const query = {
     ...(courseId ? { courseId } : {}),
     title: { $regex: searchRegex },
   };
 
-  // 6️⃣ Count total modules
+  // Count total modules
   const totalModules = await Module.countDocuments(query);
 
   // 7️ Fetch modules
@@ -110,7 +110,7 @@ exports.getAllModules = catchAsync(async (req, res) => {
   .populate('courseId', 'title _id')  
   .lean();
 
-  // 8️⃣ Response
+  //  Response
   res.status(200).json({
     status: 'success',
     page,
@@ -156,12 +156,10 @@ exports.listModules = catchAsync(async (req, res) => {
   res.status(200).json({
     status: "success",
     data: modules,
-    pagination: {
-      total: totalModules,
-      page,
-      limit,
-      totalPages: Math.ceil(totalModules / limit),
-    },
+    total: totalModules,
+    page,
+    limit,
+    totalPages: Math.ceil(totalModules / limit),
   });
 });
 

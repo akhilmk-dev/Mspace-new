@@ -65,7 +65,7 @@ const submitAssignment = async (req, res, next) => {
 
       // Send notification
       await sendNotificationToTutor(
-        assignment.createdBy.toString(),
+        assignment.createdBy,
         messageTitle,
         messageBody
       );
